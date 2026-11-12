@@ -36,6 +36,7 @@ start_time = '20261110T00'
 end_time = '20261110T23'
 
 url = 'https://analytics.eu.amplitude.com/api/2/export'
+#url = 'https://httpbin.org/status/429'
 parameters = {
     'start': start_time,
     'end': end_time
@@ -46,7 +47,7 @@ attempt = 1
 max_attempts = 4
 
 while attempt<= max_attempts:
-    response = requests.get(url, params=parameters, auth=(amp_api_key, amp_secret_key))
+    response = requests.get(url, params=parameters, auth=(amp_api_key, amp_secret_key), timeout=10)
     status_code = response.status_code
     print(response.status_code) 
 
@@ -56,7 +57,7 @@ while attempt<= max_attempts:
             print(f'File {filename} saved successfully')
             logger.info(f'File {filename} saved successfully')
         break
-    elif status_code == 400 or 401 or 403:
+    elif status_code in (400, 401, 403):
         print(f'API call failed, status code {status_code}')
         logger.error(f'API call failed, status code {status_code}')
         break
@@ -68,12 +69,17 @@ while attempt<= max_attempts:
 
     else:
         if status_code == 429 or 500<=status_code<600:
-            if attempt>max_attempts:
-                print(f'Max number of attempts reached. Status code {status_code}. Investigate further. 😶‍🌫️')
-                logger.info(f'Max number of attempts reached. Status code {status_code}. Investigate further. 😶‍🌫️')
+            if attempt==max_attempts:
+                print(f'Max number of attempts reached. Status code {status_code}. Investigate further.')
+                logger.error(f'Max number of attempts reached. Status code {status_code}. Investigate further.')
+                break
         
             else:
-                print(f'Attempt {attempt} failed, status code {status_code}, try again 🫡')
-                logger.info(f'Attempt {attempt} failed, status code {status_code}, try again 🫡')
+                print(f'Attempt {attempt} failed, status code {status_code}, try again.')
+                logger.warning(f'Attempt {attempt} failed, status code {status_code}, try again.')
                 attempt+=1
                 time.sleep(30) 
+        else:
+            print(f'Unexpected error {status_code}.')
+            logger.error(f'Unexpected error {status_code}.')
+            break
