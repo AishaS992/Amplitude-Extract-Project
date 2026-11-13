@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import json 
 import time 
 import logging 
-import zipfile, gzip, shutil, tempfile
+import zipfile, gzip, shutil
 #-----------------------------------------------------------------------------------------------
 timestamp = datetime.now().strftime('%Y-%m-%d-T%H-%M-%S')
 
@@ -40,9 +40,6 @@ zip_filename = f'{data_dir}/{timestamp}.zip'
 
 #-----------------------------------------------------------------------------------------------
 
-
-#start_time = '20261110T00'
-#end_time = '20261110T23'
 
 yesterday = (datetime.now() - timedelta(days=1))
 start_time = yesterday.strftime('%Y%m%dT00')
@@ -112,3 +109,34 @@ os.makedirs(empty_zip, exist_ok=True)
 with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
     zip_ref.extractall(empty_zip)
     print(os.listdir(empty_zip))
+
+#-----------------------------------------------------------------------------------------------
+
+for folder_path, folders, files in os.walk(empty_zip):
+    for file_name in files:
+        if file_name.endswith('.gz'):
+            print(file_name)
+
+#-----------------------------------------------------------------------------------------------
+
+json_dir = f'{data_dir}/json'
+os.makedirs(json_dir, exist_ok=True)
+
+for folder_path, folders, files in os.walk(empty_zip):
+    for file_name in files:
+        if file_name.endswith('.gz'):
+            gz_path = os.path.join(folder_path, file_name)
+            json_name = file_name.replace('.gz', '')
+            json_path = os.path.join(json_dir, json_name)
+
+            with gzip.open(gz_path,'rb') as gz_file:
+                with open(json_path, 'wb') as json_file:
+                    json_file.write(gz_file.read())
+
+            print(f'Decompressed {json_name}')
+
+#-----------------------------------------------------------------------------------------------
+
+shutil.rmtree(empty_zip, ignore_errors=True)
+if os.path.exists(empty_zip):
+    logger.warning(f'Could not fully delete {empty_zip}, delete it manually. ')
