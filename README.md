@@ -26,10 +26,10 @@ Every event recorded in our Amplitude project for yesterday (all 24 hours, T00 t
 2. Works out yesterday's date and builds the start and end times
 3. Calls the Export API, retrying on 429 and 5xx errors and stopping on 400, 401, 403 and 404
 4. Saves the ZIP exactly as it arrives
-5. Unzips it into a temporary folder, finds every `.gz` file, decompresses each one into `data/json/`
+5. Unzips it into a temporary folder, finds every `.gz` file, and decompresses each one into `data/json/`
 6. Deletes the temporary folder and logs the result
 
 ## Known limitations
 - Amplitude works in UTC, so during British Summer Time "yesterday" is out by an hour
 - Running the script twice in one day downloads the same data twice, as nothing tracks what has already been pulled
-- The temporary folder is deleted with `ignore_errors=True`, because Windows briefly locks it after extraction, and a warning is logged if it is not fully removed
+- On Windows, deleting the temporary folder sometimes failed with an "access denied" error even though the folder was empty. The cause isn't confirmed, so the script uses `ignore_errors=True` and logs a warning if the folder is still there afterwards
