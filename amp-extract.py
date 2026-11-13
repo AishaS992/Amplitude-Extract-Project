@@ -2,10 +2,11 @@ import os
 import requests
 import dotenv
 from dotenv import load_dotenv
-from datetime import datetime 
+from datetime import datetime, timedelta 
 import json 
 import time 
 import logging 
+import zipfile, gzip, shutil, tempfile
 
 timestamp = datetime.now().strftime('%Y-%m-%d-T%H-%M-%S')
 
@@ -32,11 +33,26 @@ os.makedirs(data_dir, exist_ok=True)
 
 filename = f'{data_dir}/{timestamp}.zip'
 
-start_time = '20261110T00'
-end_time = '20261110T23'
+empty_zip = 'zip'
+os.makedirs(empty_zip, exist_ok=True)
+filename = f'{empty_zip}/{timestamp}.txt'
+
+with zipfile.ZipFile(empty_zip, 'r') as zip_ref:
+    zip_ref.extractall()
+
+
+#start_time = '20261110T00'
+#end_time = '20261110T23'
+
+yesterday = (datetime.now() - timedelta(days=1))
+start_time = yesterday.strftime('%Y%m%dT00')
+end_time = yesterday.strftime('%Y%m%dT23')
+print(yesterday)
+print(start_time)
+print(end_time)
 
 url = 'https://analytics.eu.amplitude.com/api/2/export'
-#url = 'https://httpbin.org/status/429'
+
 parameters = {
     'start': start_time,
     'end': end_time
