@@ -139,6 +139,10 @@ celerybeat.pid
 *.aof
 *.pid
 
+/data
+*.json
+/json
+*.zip
 # RabbitMQ
 mnesia/
 rabbitmq/
