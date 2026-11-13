@@ -7,13 +7,16 @@ import json
 import time 
 import logging 
 import zipfile, gzip, shutil, tempfile
-
+#-----------------------------------------------------------------------------------------------
 timestamp = datetime.now().strftime('%Y-%m-%d-T%H-%M-%S')
 
 load_dotenv()
 
 amp_api_key = os.getenv("AMP_API_KEY")
 amp_secret_key = os.getenv("AMP_SECRET_KEY")
+
+
+#-----------------------------------------------------------------------------------------------
 
 logs_dir = 'logs'
 os.makedirs(logs_dir, exist_ok=True)
@@ -28,17 +31,14 @@ logging.basicConfig(
 logger = logging.getLogger() 
 logger.info('Logger was successfuly initialised.') 
 
+#-----------------------------------------------------------------------------------------------
+
 data_dir = 'data'
 os.makedirs(data_dir, exist_ok=True)
 
-filename = f'{data_dir}/{timestamp}.zip'
+zip_filename = f'{data_dir}/{timestamp}.zip'
 
-empty_zip = 'zip'
-os.makedirs(empty_zip, exist_ok=True)
-filename = f'{empty_zip}/{timestamp}.txt'
-
-with zipfile.ZipFile(empty_zip, 'r') as zip_ref:
-    zip_ref.extractall()
+#-----------------------------------------------------------------------------------------------
 
 
 #start_time = '20261110T00'
@@ -51,6 +51,8 @@ print(yesterday)
 print(start_time)
 print(end_time)
 
+#-----------------------------------------------------------------------------------------------
+
 url = 'https://analytics.eu.amplitude.com/api/2/export'
 
 parameters = {
@@ -58,6 +60,8 @@ parameters = {
     'end': end_time
 
 }
+
+#-----------------------------------------------------------------------------------------------
 
 attempt = 1
 max_attempts = 4
@@ -68,10 +72,10 @@ while attempt<= max_attempts:
     print(response.status_code) 
 
     if status_code == 200:
-        with open(filename, 'wb') as file:
+        with open(zip_filename, 'wb') as file:
             file.write(response.content)
-            print(f'File {filename} saved successfully')
-            logger.info(f'File {filename} saved successfully')
+            print(f'File {zip_filename} saved successfully')
+            logger.info(f'File {zip_filename} saved successfully')
         break
     elif status_code in (400, 401, 403):
         print(f'API call failed, status code {status_code}')
@@ -99,3 +103,12 @@ while attempt<= max_attempts:
             print(f'Unexpected error {status_code}.')
             logger.error(f'Unexpected error {status_code}.')
             break
+
+#-----------------------------------------------------------------------------------------------
+
+empty_zip = 'zip'
+os.makedirs(empty_zip, exist_ok=True)
+
+with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+    zip_ref.extractall(empty_zip)
+    print(os.listdir(empty_zip))
