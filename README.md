@@ -1,85 +1,69 @@
-# Amplitude-Extract-Project
+# Amplitude-Project
 
-This script extracts the previous day's event data from Amplitude's Export API, saves the raw download locally, and unpacks it into individual JSON files ready to be loaded into cloud storage. It's the extract step of a larger pipeline.
-
-## Business context
-
-Businesses use tools like Amplitude to track how people use their website or app, with every action recorded as an event. Those tools are great for quick answers, but the data lives inside them, which limits what you can do with it.
-
-Extracting the raw data into your own storage means you control it. You can keep as much history as you need, combine it with data from other parts of the business, and analyse it in whatever tools your team already uses.
-
-This script is the first step of that process. It pulls the data out of the source, keeps an untouched copy as a backup, and gets it into a format the next stage of the pipeline can load into cloud storage.
-
-## About the data
-
-Every action a user takes, such as viewing a page or clicking a button, is recorded as an event. Each event is a single JSON object holding details such as the event time, the user, their city and platform, and properties about the user and the event itself. The full list of fields is in the response schema in the Amplitude documentation.
+An end to end data pipeline for Amplitude event data, built in stages: extract, load and transform.
 
 ## Setup
 
-Clone the repo, open it in VS Code, then create and activate a virtual environment:
+- Clone the repo and open it in VS Code
+- Create and activate a virtual environment, then install the packages:
 
-    python -m venv .venv
-    .venv\Scripts\activate
+      python -m venv .venv
+      .venv\Scripts\activate
+      pip install -r requirements.txt
 
-Install the packages:
+- Create a `.env` file in the top folder. It's in `.gitignore` and should never be committed.
 
-    pip install -r requirements.txt
+      AMP_API_KEY=your_api_key
+      AMP_SECRET_KEY=your_secret_key
+      AWS_ACCESS_KEY=your_access_key
+      AWS_SECRET_ACCESS_KEY=your_secret_key
+      AWS_BUCKET_NAME=your_bucket_name
 
-Create a `.env` file in the top folder with the project's API key and secret key. This file is in `.gitignore` and should never be committed.
+---
 
-    AMP_API_KEY=your_api_key
-    AMP_SECRET_KEY=your_secret_key
+## Extract
 
-## How to run
+`amp-extract.py` pulls the previous day's events from Amplitude's Export API, saves the raw ZIP and unpacks it into JSON files.
 
     python amp-extract.py
 
-Each run creates a raw ZIP in `data/`, unpacked JSON files in `data/json/`, and a log file in `logs/`, all named with the time the script ran so nothing gets overwritten.
+### Output
 
-## What the API documentation told us
+- `data/` holds the raw ZIP, named with the time the script ran
+- `data/json/` holds the unpacked JSON files, one event per line
+- `logs/` holds a log file for each run
 
-A few things from the Amplitude documentation shaped how the script was built:
+### Key points
 
-- Our project's data is stored in the EU, so the script uses `https://analytics.eu.amplitude.com/api/2/export` rather than the default URL
-- Authentication is basic auth, with the API key as the username and the secret key as the password
-- `start` and `end` are both required, written as `YYYYMMDDTHH`, and both hours are included, so `T00` to `T23` covers a full day
-- The time range is based on when Amplitude received the data (`server_upload_time`), not when the event happened, and all times are in UTC
-- Data only becomes available for export around 2 hours after Amplitude receives it, which is why the script asks for yesterday rather than today
-- A single export can't be bigger than 6 GB, otherwise the API returns a 400
-- The limit is 360 requests an hour and 4 at the same time, and going over either returns a 429
-- The API doesn't remove duplicates, so asking for the same hours twice gives you the same events twice
-- The response isn't plain JSON. It's a ZIP containing a numbered folder of gzip compressed files, and each of those holds JSON with one event per line
+- Uses the EU endpoint with basic auth (API key as username, secret key as password)
+- `start` and `end` are required, in the format `YYYYMMDDTHH`
+- Data is only available around 2 hours after Amplitude receives it, which is why the script pulls yesterday
+- Status codes: 200 saves the ZIP, 429 and 5xx retry up to 4 times, anything else logs the error and stops
 
-## Understanding the logic
+### Known limitations
 
-The script has two jobs: get the data safely, then unpack it.
+- During British Summer Time, "yesterday" in UTC is out by an hour
+- Running it twice in one day downloads the same data twice
+- If the API call fails, the unpacking section still runs and errors
 
-To get the data, it loads the key and secret, sets up logging, works out yesterday's date, and calls the API. Yesterday is used because it's a finished day that Amplitude has fully processed, and if the script runs once a day, each run picks up the next day without overlapping the last.
+---
 
-What happens next depends on the status code that comes back. A 200 means it worked, so the ZIP is saved exactly as it arrived. A 400, 401 or 403 means something is wrong with the request or the key, and since retrying the same request would just fail again, the script logs the error and stops. A 404 means there's no data for that range yet. A 429 or a 5xx means Amplitude is busy or having a temporary problem, so the script waits 30 seconds and tries again, up to 4 attempts in total. Any other code is unexpected, so the script stops rather than looping forever.
+## Load
 
-To unpack the data, the script keeps the raw ZIP untouched, so it can always be unpacked again without calling the API. It unzips everything into a temporary folder, works through every folder inside to find the `.gz` files, decompresses each one, and saves it with the same name minus `.gz` into `data/json/`. Once that's done, the temporary folder is deleted.
+`amp-load.py` uploads the JSON files from `data/json/` to an AWS S3 bucket. From there they're loaded into Snowflake using SQL.
 
-## Pseudocode
+    python amp-load.py
 
-- Load the API key and secret from `.env`
-- Set up logging and the data folder
-- Work out yesterday and build the start and end times
-- Call the API
-- Check the status code
-    - 200: save the ZIP and carry on
-    - 400, 401 or 403: log the error and stop
-    - 404: log that there's no data yet and stop
-    - 429 or 5xx: wait 30 seconds and try again, stopping after 4 attempts
-    - Anything else: log it and stop
-- Unzip the ZIP into a temporary folder
-- Find every `.gz` file inside it
-- Decompress each one and save it as JSON in `data/json/`
-- Delete the temporary folder, and log a warning if it can't be deleted
+### Output
 
-## Known limitations
+- Each JSON file is uploaded to the S3 bucket with the same name
+- The local copy in `data/json/` is deleted once it has uploaded, while the raw ZIP stays in `data/`
+- `logs/` holds a log file for each run, including any failed uploads
+- In Snowflake, the data lands in the `raw` table, with the JSON in a `VARIANT` column and the source file name
 
-- Amplitude works in UTC, so during British Summer Time "yesterday" is out by an hour
-- Running the script twice in one day downloads the same data twice, as nothing keeps track of what has already been pulled
-- If the API call fails, the unpacking section still runs and errors, because there's no ZIP to open
-- On Windows, deleting the temporary folder sometimes failed with an "access denied" error even though the folder was empty. The cause isn't confirmed, so the script uses `ignore_errors=True` and logs a warning if the folder is still there afterwards
+### Key points
+
+- The Python script connects to S3 with `boto3`, using the IAM user keys from `.env`
+- The files in S3 are encrypted with a KMS key, and an IAM policy allows access to the bucket and the key
+- Snowflake reads the bucket through an IAM role, linked with a storage integration and a stage (`as_amplitude_stage`)
+- `COPY INTO` loads the files from the stage into the `raw` table, and skips any files it has already loaded
