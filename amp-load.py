@@ -53,7 +53,10 @@ for file in file_location:
     to_upload = f'{data_dir}/{file}'  #name of local files what will be uploaded to AWS S3
     try:
         s3_client.upload_file(to_upload, AWS_BUCKET_NAME, file)     # find the file locally, bucket we want it in, what we want it called in S3
-        logging.info(f'File {file} has successfully uploaded!')
+        logger.info(f'File {file} has successfully uploaded!')
         os.remove(to_upload)            # deletes the local copy, only happens if the upload worked
     except Exception as e:              # if the upload fails it jumps here, so the file doesn't get deleted and the loop moves on to the next one
+        logger.error(f'Something went wrong. Error: {e}')
         print(f'Something went wrong. Error: {e}')
+
+
