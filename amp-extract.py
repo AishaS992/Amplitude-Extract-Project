@@ -8,6 +8,7 @@ import json
 import time                                 # waiting between retries
 import logging                              # writing a log file for each run
 import zipfile, gzip, shutil                # unzipping, decompressing and deleting folders
+
 #-----------------------------------------------------------------------------------------------
 # Timestamp for this run, used to give every file a unique name so nothing gets overwritten
 timestamp = datetime.now().strftime('%Y-%m-%d-T%H-%M-%S')
@@ -165,3 +166,4 @@ for folder_path, folders, files in os.walk(empty_zip):
 shutil.rmtree(empty_zip, ignore_errors=True)
 if os.path.exists(empty_zip):
     logger.warning(f'Could not fully delete {empty_zip}, delete it manually. ')
+
