@@ -84,18 +84,18 @@ client = boto3.client(
 s3_contents = client.list_objects_v2(Bucket = AWS_BUCKET_NAME)
 
 yesterday_str = yesterday.strftime('%Y-%m-%d')      # yesterday now in the same format as the file names
-already_uploaded = False                             # assume it's not there until we find it
+file_upload = 1                            # assume it's not there until we find it
 
 # AWS always puts the list of files under 'Contents' (left out if the bucket is empty, so default to an empty list)
 for file in s3_contents.get('Contents', []):
     if yesterday_str in file['Key']:                #  is yesterday's date in this file name (each file is a dictionary, file name is under 'Key')
-        already_uploaded = True                      # found it, so the data is already in S3
+        file_upload=+1                      # found it, so the data is already in S3
                      
 
 # if yesterday's data is already in S3, skip everything below
-if already_uploaded:
-    print(f'Data for {yesterday_str} is already in S3.')
-    logger.info(f'Data for {yesterday_str} is already in S3.')
+if file_upload==24:
+    print(f'All the data for {yesterday_str} is already in S3.')
+    logger.info(f'All the data for {yesterday_str} is already in S3.')
 
 #  otherwise call the API and unpack the data as normal
 else:
