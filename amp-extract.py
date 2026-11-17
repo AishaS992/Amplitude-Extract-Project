@@ -8,6 +8,7 @@ import json
 import time                                 # waiting between retries
 import logging                              # writing a log file for each run
 import zipfile, gzip, shutil                # unzipping, decompressing and deleting folders
+import boto3
 
 #-----------------------------------------------------------------------------------------------
 # Timestamp for this run, used to give every file a unique name so nothing gets overwritten
@@ -18,6 +19,9 @@ load_dotenv()
 
 amp_api_key = os.getenv("AMP_API_KEY")
 amp_secret_key = os.getenv("AMP_SECRET_KEY")
+AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_BUCKET_NAME = os.getenv('AWS_BUCKET_NAME')
 
 
 #-----------------------------------------------------------------------------------------------
@@ -68,102 +72,131 @@ parameters = {
 }
 
 #-----------------------------------------------------------------------------------------------
-# Call the API, retrying when it makes sense to and stopping when it doesn't
+#check s3 bucket for what files have already been uploaded
 
-attempt = 1
-max_attempts = 4
+client = boto3.client(
+    's3',
+    aws_access_key_id = AWS_ACCESS_KEY,
+    aws_secret_access_key = AWS_SECRET_ACCESS_KEY
+)
 
-while attempt<= max_attempts:
-    # Basic authentication: API key as the username, secret key as the password
-    response = requests.get(url, params=parameters, auth=(amp_api_key, amp_secret_key), timeout=10)
-    status_code = response.status_code
-    print(response.status_code) 
+# get everything in the bucket, AWS sends it back as a dictionary in a fixed format
+s3_contents = client.list_objects_v2(Bucket = AWS_BUCKET_NAME)
 
-    if status_code == 200:
-        # Success: the response is a ZIP, which isn't text, so it is written as bytes ('wb')
-        with open(zip_filename, 'wb') as file:
-            file.write(response.content)
-            print(f'File {zip_filename} saved successfully')
-            logger.info(f'File {zip_filename} saved successfully')
-        break
-    elif status_code in (400, 401, 403):
-        # A problem with the request or the key, so retrying won't help until it's fixed
-        print(f'API call failed, status code {status_code}')
-        logger.error(f'API call failed, status code {status_code}')
-        break
-        
-    elif status_code == 404:
-        # No data for this range yet, usually because of Amplitude's 2 hour processing delay
-        print(f'No data available for this range.')
-        logger.info(f'No data available for this range.')
-        break
+yesterday_str = yesterday.strftime('%Y-%m-%d')      # yesterday now in the same format as the file names
+already_uploaded = False                             # assume it's not there until we find it
 
-    else:
-        if status_code == 429 or 500<=status_code<600:
-            # Too many requests or a server problem, both temporary, so wait and try again
-            if attempt==max_attempts:
-                print(f'Max number of attempts reached. Status code {status_code}. Investigate further.')
-                logger.error(f'Max number of attempts reached. Status code {status_code}. Investigate further.')
-                break
-        
-            else:
-                print(f'Attempt {attempt} failed, status code {status_code}, try again.')
-                logger.warning(f'Attempt {attempt} failed, status code {status_code}, try again.')
-                attempt+=1
-                time.sleep(30) 
-        else:
-            # Any code not handled above, so stop rather than loop forever
-            print(f'Unexpected error {status_code}.')
-            logger.error(f'Unexpected error {status_code}.')
+# AWS always puts the list of files under 'Contents' (left out if the bucket is empty, so default to an empty list)
+for file in s3_contents.get('Contents', []):
+    if yesterday_str in file['Key']:                #  is yesterday's date in this file name (each file is a dictionary, file name is under 'Key')
+        already_uploaded = True                      # found it, so the data is already in S3
+                     
+
+# if yesterday's data is already in S3, skip everything below
+if already_uploaded:
+    print(f'Data for {yesterday_str} is already in S3.')
+    logger.info(f'Data for {yesterday_str} is already in S3.')
+
+#  otherwise call the API and unpack the data as normal
+else:
+    
+#-----------------------------------------------------------------------------------------------
+    # call the API retrying when it makes sense to and stopping when it doesn't
+
+    attempt = 1
+    max_attempts = 4
+
+    while attempt<= max_attempts:
+        # basic authentication- API key as the username, secret key as the password
+        response = requests.get(url, params=parameters, auth=(amp_api_key, amp_secret_key), timeout=10)
+        status_code = response.status_code
+        print(response.status_code) 
+
+        if status_code == 200:
+            # success- the response is a ZIP, which isn't text, so it is written as bytes ('wb')
+            with open(zip_filename, 'wb') as file:
+                file.write(response.content)
+                print(f'File {zip_filename} saved successfully')
+                logger.info(f'File {zip_filename} saved successfully')
+            break
+        elif status_code in (400, 401, 403):
+            # problem with the request or the key, so retrying won't help until it's fixed
+            print(f'API call failed, status code {status_code}')
+            logger.error(f'API call failed, status code {status_code}')
+            break
+            
+        elif status_code == 404:
+            # no data for this range yet, usually bc of Amplitude's 2 hour processing delay
+            print(f'No data available for this range.')
+            logger.info(f'No data available for this range.')
             break
 
-#-----------------------------------------------------------------------------------------------
-# Unnest: ZIP > numbered folder > .gz files > JSON files
-# The raw ZIP is kept, so the data can be reprocessed without calling the API again
+        else:
+            if status_code == 429 or 500<=status_code<600:
+                # too many requests or a server problem, both temporary, so wait and try again
+                if attempt==max_attempts:
+                    print(f'Max number of attempts reached. Status code {status_code}. Investigate further.')
+                    logger.error(f'Max number of attempts reached. Status code {status_code}. Investigate further.')
+                    break
+            
+                else:
+                    print(f'Attempt {attempt} failed, status code {status_code}, try again.')
+                    logger.warning(f'Attempt {attempt} failed, status code {status_code}, try again.')
+                    attempt+=1
+                    time.sleep(30) 
+            else:
+                # any code not handled above, so stop rather than loop forever
+                print(f'Unexpected error {status_code}.')
+                logger.error(f'Unexpected error {status_code}.')
+                break
 
-# Temporary folder to unzip into, deleted at the end
-empty_zip = 'zip'
-os.makedirs(empty_zip, exist_ok=True)
+    #-----------------------------------------------------------------------------------------------
+    # unnest- ZIP > numbered folder > .gz files > JSON files
+    # the raw ZIP is kept, so the data can be reprocessed without calling the API again
 
-# Open the ZIP saved above in read mode and extract everything into the temporary folder
-with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
-    zip_ref.extractall(empty_zip)
-    print(os.listdir(empty_zip))
+    # temporary folder to unzip into, deleted at the end
+    empty_zip = 'zip'
+    os.makedirs(empty_zip, exist_ok=True)
 
-#-----------------------------------------------------------------------------------------------
-# Check: walk through the temporary folder and print every .gz file found
+    # open the ZIP saved above in read mode and extract everything into the temporary folder
+    with zipfile.ZipFile(zip_filename, 'r') as zip_ref:
+        zip_ref.extractall(empty_zip)
+        print(os.listdir(empty_zip))
 
-for folder_path, folders, files in os.walk(empty_zip):
-    for file_name in files:
-        if file_name.endswith('.gz'):
-            print(file_name)
+    #-----------------------------------------------------------------------------------------------
+    # check- walk through the temporary folder and print every .gz file found
 
-#-----------------------------------------------------------------------------------------------
-# Folder where the final JSON files go
+    for folder_path, folders, files in os.walk(empty_zip):
+        for file_name in files:
+            if file_name.endswith('.gz'):
+                print(file_name)
 
-json_dir = f'{data_dir}/json'
-os.makedirs(json_dir, exist_ok=True)
+    #-----------------------------------------------------------------------------------------------
+    # folder where the final JSON files go
 
-# Walk through the temporary folder and every folder inside it, picking out the .gz files
-for folder_path, folders, files in os.walk(empty_zip):
-    for file_name in files:
-        if file_name.endswith('.gz'):
-            gz_path = os.path.join(folder_path, file_name)     # full path to the .gz file
-            json_name = file_name.replace('.gz', '')           # same name without .gz
-            json_path = os.path.join(json_dir, json_name)      # where the JSON will be saved
+    json_dir = f'{data_dir}/json'
+    os.makedirs(json_dir, exist_ok=True)
 
-            # Read the compressed file (gzip decompresses as it reads) and write it out as JSON
-            with gzip.open(gz_path,'rb') as gz_file:
-                with open(json_path, 'wb') as json_file:
-                    json_file.write(gz_file.read())
+    # walk through the temporary folder and every folder inside it, picking out the .gz files
+    for folder_path, folders, files in os.walk(empty_zip):
+        for file_name in files:
+            if file_name.endswith('.gz'):
+                gz_path = os.path.join(folder_path, file_name)     # full path to the .gz file
+                json_name = file_name.replace('.gz', '')           # same name without .gz
+                json_path = os.path.join(json_dir, json_name)      # where the JSON will be saved
 
-            print(f'Decompressed {json_name}')
+                # Read the compressed file (gzip decompresses as it reads) and write it out as JSON
+                with gzip.open(gz_path,'rb') as gz_file:
+                    with open(json_path, 'wb') as json_file:
+                        json_file.write(gz_file.read())
 
-#-----------------------------------------------------------------------------------------------
-# Delete the temporary folder. On Windows this sometimes failed with "access denied" even though
-# the folder was empty, so errors are ignored here and a warning is logged if it's still there
+                print(f'Decompressed {json_name}')
 
-shutil.rmtree(empty_zip, ignore_errors=True)
-if os.path.exists(empty_zip):
-    logger.warning(f'Could not fully delete {empty_zip}, delete it manually. ')
+    #-----------------------------------------------------------------------------------------------
+    # delete the temporary folder. On Windows this sometimes failed with "access denied" even though
+    # the folder was empty, so errors are ignored here and a warning is logged if it's still there
+
+    shutil.rmtree(empty_zip, ignore_errors=True)
+    if os.path.exists(empty_zip):
+        logger.warning(f'Could not fully delete {empty_zip}, delete it manually. ')
 
