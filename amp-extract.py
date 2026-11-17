@@ -8,6 +8,7 @@ import json
 import time                                 # waiting between retries
 import logging                              # writing a log file for each run
 import zipfile, gzip, shutil                # unzipping, decompressing and deleting folders
+import boto3
 
 #-----------------------------------------------------------------------------------------------
 # Timestamp for this run, used to give every file a unique name so nothing gets overwritten
@@ -18,6 +19,9 @@ load_dotenv()
 
 amp_api_key = os.getenv("AMP_API_KEY")
 amp_secret_key = os.getenv("AMP_SECRET_KEY")
+AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_BUCKET_NAME = os.getenv('AWS_BUCKET_NAME')
 
 
 #-----------------------------------------------------------------------------------------------
@@ -166,4 +170,21 @@ for folder_path, folders, files in os.walk(empty_zip):
 shutil.rmtree(empty_zip, ignore_errors=True)
 if os.path.exists(empty_zip):
     logger.warning(f'Could not fully delete {empty_zip}, delete it manually. ')
+
+#-----------------------------------------------------------------------------------------------
+#Check s3 bucket for what files have already been uploaded
+
+client = boto3.client(
+    's3',
+    aws_access_key_id = AWS_ACCESS_KEY,
+    aws_secret_access_key = AWS_SECRET_ACCESS_KEY
+)
+
+# Get everything in the bucket, AWS sends it back as a dictionary in a fixed format
+s3_contents = client.list_objects_v2(Bucket = AWS_BUCKET_NAME)
+
+# AWS always puts the list of files under 'Contents' (left out if the bucket is empty, so default to an empty list)
+for file in s3_contents.get('Contents', []):
+    print(file)                 # each file is a dictionary, file name is under 'Key'
+
 
