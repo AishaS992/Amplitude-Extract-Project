@@ -177,6 +177,8 @@ Snowpipe loads each new file into Snowflake automatically, shortly after it land
 2. `show pipes;` gives the pipe's `notification_channel` value (an SQS queue ARN), the location Snowflake watches for new files
 3. The S3 bucket has an event notification (Properties, then Event notifications) that sends new object events to that SQS queue
 
+The full SQL for the pipe is in [`snowflake/snowpipe.sql`](snowflake/snowpipe.sql).
+
 When a file lands, S3 notifies Snowflake and Snowpipe runs the copy.
 
 ### Checking it works
