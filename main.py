@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from modules.extract_function import extract_api_to_zip
 from modules.unnest_function import unnest_zip
+from modules.load_function import load_to_s3
 import logging
 import os
 from dotenv import load_dotenv
@@ -30,6 +31,9 @@ load_dotenv() # gives the script access to the keys in .env
 
 AMP_API_KEY = os.getenv('AMP_API_KEY')
 AMP_SECRET_KEY = os.getenv('AMP_SECRET_KEY')
+AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_BUCKET_NAME = os.getenv('AWS_BUCKET_NAME')
 
 # work out yesterday, T00 to T23 covers all 24 hours
 yesterday = datetime.now() - timedelta(days=1)
@@ -41,9 +45,13 @@ extract_result = extract_api_to_zip(url, AMP_API_KEY, AMP_SECRET_KEY, start_time
                                     data_dir, timestamp, max_attempts=4, delay=30)
 
 
-# only unnest if extract saved a ZIP
+# each step only runs if the one before it worked
 if extract_result:
     unnest_result = unnest_zip(zip_filename, json_dir)
-    print(unnest_result)
+
+    if unnest_result:
+        load_to_s3(AWS_BUCKET_NAME, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, json_dir)
+    else:
+        logger.info('Unnest saved no JSON, nothing to upload so aborted.')
 else:
-    logger.info('Extract saved no data, nothing to unnest so aborted.')
+    logger.info('Extract saved no data, nothing to unnest or upload so aborted.')
